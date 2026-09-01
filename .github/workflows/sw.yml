@@ -1,70 +1,48 @@
 name: sw
 
 on:
-  # Сборка при push
   push:
-
-  # Сборка Pull Request
   pull_request:
-
-  # Ручной запуск через GitHub Actions
   workflow_dispatch:
-
-  # Ежедневная автоматическая сборка
-  schedule:
-    - cron: "0 0 * * *"
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Windows x64
-
+    name: Build Windows x64
     runs-on: windows-latest
 
     steps:
-
-      # ============================================================
-      # 1. Получение исходников
-      # ============================================================
-      - name: Checkout repository
+      # ------------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------------
+      - name: Checkout
         uses: actions/checkout@v4
 
-
-      # ============================================================
-      # 2. Установка SW
-      # ============================================================
+      # ------------------------------------------------------------
+      # Install SW
+      # ------------------------------------------------------------
       - name: Setup SW
         uses: egorpugin/sw-action@master
 
-
-      # ============================================================
-      # 3. Информация о системе
-      # ============================================================
+      # ------------------------------------------------------------
+      # Environment diagnostics
+      # ------------------------------------------------------------
       - name: Show environment
         shell: pwsh
         run: |
-          Write-Host "========================================"
-          Write-Host "Windows"
-          Write-Host "========================================"
-
+          Write-Host "=== Windows ==="
           Get-CimInstance Win32_OperatingSystem |
             Select-Object Caption, Version, OSArchitecture
 
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "CPU"
-          Write-Host "========================================"
-
+          Write-Host "=== CPU ==="
           Get-CimInstance Win32_Processor |
             Select-Object Name, NumberOfCores, NumberOfLogicalProcessors
 
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Memory"
-          Write-Host "========================================"
-
+          Write-Host "=== RAM ==="
           Get-CimInstance Win32_ComputerSystem |
             Select-Object @{
               Name = "RAM_GB"
@@ -74,50 +52,17 @@ jobs:
             }
 
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "SW"
-          Write-Host "========================================"
+          Write-Host "=== SW ==="
+          .\sw.exe --version
 
-          if (Test-Path ".\sw.exe") {
-            .\sw.exe --version
-          } else {
-            Write-Host "sw.exe not found in repository root"
-          }
+          Write-Host ""
+          Write-Host "=== MSVC ==="
+          where.exe cl
+          cl 2>&1 | Select-Object -First 3
 
-
-      # ============================================================
-      # 4. Определение компиляторов
-      # ============================================================
-      - name: Detect compilers
-        shell: pwsh
-        run: |
-          Write-Host "========================================"
-          Write-Host "Detected programs"
-          Write-Host "========================================"
-
-          .\sw.exe list-programs
-
-
-      # ============================================================
-      # 5. Генерация проекта
-      # ============================================================
-      - name: Generate build
-        shell: pwsh
-        run: |
-          .\sw.exe generate
-
-
-      # ============================================================
-      # 6. Сборка
-      #
-      # -static  = статическая сборка
-      # release  = Release
-      # -j=2     = максимум 2 компилятора одновременно
-      # -jp=2    = максимум 2 prepare-задачи
-      #
-      # j=2 выбран специально из-за C1060/C1069, которые
-      # возникали у тебя при более высокой нагрузке MSVC.
-      # ============================================================
+      # ------------------------------------------------------------
+      # Build
+      # ------------------------------------------------------------
       - name: Build
         shell: pwsh
         run: |
@@ -129,32 +74,28 @@ jobs:
             -jp=2 `
             -show-output
 
-
-      # ============================================================
-      # 7. Показать результат
-      # ============================================================
+      # ------------------------------------------------------------
+      # Find executables
+      # ------------------------------------------------------------
       - name: Find executables
         if: always()
         shell: pwsh
         run: |
-          Write-Host "========================================"
-          Write-Host "Executables"
-          Write-Host "========================================"
+          Write-Host "=== EXE files ==="
 
           if (Test-Path ".sw\out") {
             Get-ChildItem ".sw\out" `
               -Recurse `
               -Filter "*.exe" `
               -ErrorAction SilentlyContinue |
-              Select-Object FullName, Length
-          } else {
-            Write-Host ".sw\out does not exist"
+              ForEach-Object {
+                Write-Host "$($_.FullName)  $($_.Length) bytes"
+              }
           }
 
-
-      # ============================================================
-      # 8. Сохранить готовые EXE
-      # ============================================================
+      # ------------------------------------------------------------
+      # Upload executables
+      # ------------------------------------------------------------
       - name: Upload executables
         if: success()
         uses: actions/upload-artifact@v4
@@ -163,18 +104,10 @@ jobs:
           path: .sw/out/**/*.exe
           if-no-files-found: error
 
-
-      # ============================================================
-      # 9. Сохранить полный SW при ошибке
-      #
-      # Это особенно важно для твоей проблемы с:
-      #   NASM
-      #   Perl
-      #   Fcntl
-      #   C1060
-      #   C1069
-      # ============================================================
-      - name: Upload SW build data on failure
+      # ------------------------------------------------------------
+      # Save SW data if build fails
+      # ------------------------------------------------------------
+      - name: Upload build data on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -183,30 +116,3 @@ jobs:
             .sw/**
             sw.cpp
           if-no-files-found: warn
-
-
-      # ============================================================
-      # 10. Список SW output даже при ошибке
-      # ============================================================
-      - name: Final diagnostics
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "========================================"
-          Write-Host "SW directory"
-          Write-Host "========================================"
-
-          if (Test-Path ".sw") {
-            Get-ChildItem ".sw" -Directory |
-              Select-Object Name
-          }
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Output"
-          Write-Host "========================================"
-
-          if (Test-Path ".sw\out") {
-            Get-ChildItem ".sw\out" -Recurse -ErrorAction SilentlyContinue |
-              Select-Object FullName
-          }
