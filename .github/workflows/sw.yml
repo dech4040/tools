@@ -1,28 +1,212 @@
 name: sw
 
 on:
+  # Сборка при push
   push:
+
+  # Сборка Pull Request
   pull_request:
+
+  # Ручной запуск через GitHub Actions
+  workflow_dispatch:
+
+  # Ежедневная автоматическая сборка
   schedule:
-    # every day
-    - cron: 0 0 * * *
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
+    name: Windows x64
+
+    runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v1
-    - uses: egorpugin/sw-action@master
 
-    - name: build
-      run: ./sw -static build
+      # ============================================================
+      # 1. Получение исходников
+      # ============================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - uses: actions/upload-artifact@v3
-      with:
-        name: sw
-        path: .sw/out/**/*.exe
+
+      # ============================================================
+      # 2. Установка SW
+      # ============================================================
+      - name: Setup SW
+        uses: egorpugin/sw-action@master
+
+
+      # ============================================================
+      # 3. Информация о системе
+      # ============================================================
+      - name: Show environment
+        shell: pwsh
+        run: |
+          Write-Host "========================================"
+          Write-Host "Windows"
+          Write-Host "========================================"
+
+          Get-CimInstance Win32_OperatingSystem |
+            Select-Object Caption, Version, OSArchitecture
+
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "CPU"
+          Write-Host "========================================"
+
+          Get-CimInstance Win32_Processor |
+            Select-Object Name, NumberOfCores, NumberOfLogicalProcessors
+
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "Memory"
+          Write-Host "========================================"
+
+          Get-CimInstance Win32_ComputerSystem |
+            Select-Object @{
+              Name = "RAM_GB"
+              Expression = {
+                [math]::Round($_.TotalPhysicalMemory / 1GB, 1)
+              }
+            }
+
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "SW"
+          Write-Host "========================================"
+
+          if (Test-Path ".\sw.exe") {
+            .\sw.exe --version
+          } else {
+            Write-Host "sw.exe not found in repository root"
+          }
+
+
+      # ============================================================
+      # 4. Определение компиляторов
+      # ============================================================
+      - name: Detect compilers
+        shell: pwsh
+        run: |
+          Write-Host "========================================"
+          Write-Host "Detected programs"
+          Write-Host "========================================"
+
+          .\sw.exe list-programs
+
+
+      # ============================================================
+      # 5. Генерация проекта
+      # ============================================================
+      - name: Generate build
+        shell: pwsh
+        run: |
+          .\sw.exe generate
+
+
+      # ============================================================
+      # 6. Сборка
+      #
+      # -static  = статическая сборка
+      # release  = Release
+      # -j=2     = максимум 2 компилятора одновременно
+      # -jp=2    = максимум 2 prepare-задачи
+      #
+      # j=2 выбран специально из-за C1060/C1069, которые
+      # возникали у тебя при более высокой нагрузке MSVC.
+      # ============================================================
+      - name: Build
+        shell: pwsh
+        run: |
+          .\sw.exe `
+            -static `
+            build `
+            -configuration=release `
+            -j=2 `
+            -jp=2 `
+            -show-output
+
+
+      # ============================================================
+      # 7. Показать результат
+      # ============================================================
+      - name: Find executables
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "========================================"
+          Write-Host "Executables"
+          Write-Host "========================================"
+
+          if (Test-Path ".sw\out") {
+            Get-ChildItem ".sw\out" `
+              -Recurse `
+              -Filter "*.exe" `
+              -ErrorAction SilentlyContinue |
+              Select-Object FullName, Length
+          } else {
+            Write-Host ".sw\out does not exist"
+          }
+
+
+      # ============================================================
+      # 8. Сохранить готовые EXE
+      # ============================================================
+      - name: Upload executables
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIM-Tools-Windows-x64
+          path: .sw/out/**/*.exe
+          if-no-files-found: error
+
+
+      # ============================================================
+      # 9. Сохранить полный SW при ошибке
+      #
+      # Это особенно важно для твоей проблемы с:
+      #   NASM
+      #   Perl
+      #   Fcntl
+      #   C1060
+      #   C1069
+      # ============================================================
+      - name: Upload SW build data on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIM-Tools-build-failure
+          path: |
+            .sw/**
+            sw.cpp
+          if-no-files-found: warn
+
+
+      # ============================================================
+      # 10. Список SW output даже при ошибке
+      # ============================================================
+      - name: Final diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "========================================"
+          Write-Host "SW directory"
+          Write-Host "========================================"
+
+          if (Test-Path ".sw") {
+            Get-ChildItem ".sw" -Directory |
+              Select-Object Name
+          }
+
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "Output"
+          Write-Host "========================================"
+
+          if (Test-Path ".sw\out") {
+            Get-ChildItem ".sw\out" -Recurse -ErrorAction SilentlyContinue |
+              Select-Object FullName
+          }
