@@ -47,8 +47,6 @@ jobs:
             -static `
             build `
             -configuration=release `
-            -j=2 `
-            -jp=2 `
             -show-output
 
       # ------------------------------------------------------------
