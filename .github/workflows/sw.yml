@@ -21,47 +21,24 @@ jobs:
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------
-      # Install SW
+      # Setup SW
       # ------------------------------------------------------------
       - name: Setup SW
         uses: egorpugin/sw-action@master
 
       # ------------------------------------------------------------
-      # Environment diagnostics
+      # SW version
       # ------------------------------------------------------------
-      - name: Show environment
+      - name: Check SW
         shell: pwsh
         run: |
-          Write-Host "=== Windows ==="
-          Get-CimInstance Win32_OperatingSystem |
-            Select-Object Caption, Version, OSArchitecture
-
-          Write-Host ""
-          Write-Host "=== CPU ==="
-          Get-CimInstance Win32_Processor |
-            Select-Object Name, NumberOfCores, NumberOfLogicalProcessors
-
-          Write-Host ""
-          Write-Host "=== RAM ==="
-          Get-CimInstance Win32_ComputerSystem |
-            Select-Object @{
-              Name = "RAM_GB"
-              Expression = {
-                [math]::Round($_.TotalPhysicalMemory / 1GB, 1)
-              }
-            }
-
-          Write-Host ""
-          Write-Host "=== SW ==="
           .\sw.exe --version
-
-          Write-Host ""
-          Write-Host "=== MSVC ==="
-          where.exe cl
-          cl 2>&1 | Select-Object -First 3
 
       # ------------------------------------------------------------
       # Build
+      #
+      # Same basic build method as the original project workflow.
+      # Two parallel jobs to reduce MSVC memory consumption.
       # ------------------------------------------------------------
       - name: Build
         shell: pwsh
@@ -81,7 +58,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Write-Host "=== EXE files ==="
+          Write-Host "=== Executables ==="
 
           if (Test-Path ".sw\out") {
             Get-ChildItem ".sw\out" `
@@ -89,8 +66,11 @@ jobs:
               -Filter "*.exe" `
               -ErrorAction SilentlyContinue |
               ForEach-Object {
-                Write-Host "$($_.FullName)  $($_.Length) bytes"
+                Write-Host "$($_.FullName)"
               }
+          }
+          else {
+            Write-Host ".sw\out does not exist"
           }
 
       # ------------------------------------------------------------
@@ -105,7 +85,7 @@ jobs:
           if-no-files-found: error
 
       # ------------------------------------------------------------
-      # Save SW data if build fails
+      # Save build data if something fails
       # ------------------------------------------------------------
       - name: Upload build data on failure
         if: failure()
